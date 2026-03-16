@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: lab(2.75381% 0 0);
+    --foreground: lab(98.26% 0 0);
+    --card: lab(7.78201% -0.0000149012 0);
+    --card-foreground: lab(98.26% 0 0);
+    --popover: lab(7.78201% -0.0000149012 0);
+    --popover-foreground: lab(98.26% 0 0);
+    --primary: lab(90.952% 0 -0.0000119209);
+    --primary-foreground: lab(7.78201% -0.0000149012 0);
+    --secondary: lab(15.204% 0 -0.00000596046);
+    --secondary-foreground: lab(98.26% 0 0);
+    --muted: lab(15.204% 0 -0.00000596046);
+    --muted-foreground: lab(66.128% -0.0000298023 0.0000119209);
+    --accent: lab(27.036% 0 0);
+    --accent-foreground: lab(98.26% 0 0);
+    --destructive: lab(63.7053% 60.745 31.3109);
+    --destructive-foreground: lab(49.0747% 69.3434 49.6251);
+    --border: lab(100% 0 0 / 0.1);
+    --input: lab(100% 0 0 / 0.15);
+    --ring: lab(48.496% 0 0);
+    --sidebar: lab(7.78201% -0.0000149012 0);
+    --sidebar-foreground: lab(98.26% 0 0);
+    --sidebar-primary: lab(36.9089% 35.0961 -85.6872);
+    --sidebar-primary-foreground: lab(98.26% 0 0);
+    --sidebar-accent: lab(15.204% 0 -0.00000596046);
+    --sidebar-accent-foreground: lab(98.26% 0 0);
+    --sidebar-border: lab(100% 0 0 / 0.1);
+    --sidebar-ring: lab(34.924% 0 0);
+    --surface: lab(7.22637% -0.0000149012 0);
+    --surface-foreground: lab(66.128% -0.0000298023 0.0000119209);
+    --code-highlight: lab(15.32% 0 0);
+    --code-number: lab(67.52% -0.0000298023 0);
+    --selection: lab(90.952% 0 -0.0000119209);
+    --selection-foreground: lab(7.78201% -0.0000149012 0);
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

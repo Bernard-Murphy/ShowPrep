@@ -1,0 +1,77 @@
+"use client";
+
+import Link from "next/link";
+import { useAuth } from "@/components/auth-provider";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { setStoredToken } from "@/lib/auth-storage";
+
+export function AuthWidget() {
+  const { user, showAuthDialog, setUser, refetchUser } = useAuth();
+
+  const handleLogout = () => {
+    setStoredToken(null);
+    setUser(null);
+    refetchUser();
+  };
+
+  if (!user) {
+    return (
+      <Button size="sm" onClick={() => showAuthDialog("login")}>
+        Sign in
+      </Button>
+    );
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="rounded-full ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          aria-label="User menu"
+        >
+          {user.avatarUrl ? (
+            <img
+              src={user.avatarUrl}
+              alt=""
+              className="h-9 w-9 rounded-full object-cover"
+            />
+          ) : (
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-sm font-medium">
+              {(user.displayName || "U").slice(0, 1).toUpperCase()}
+            </div>
+          )}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>
+            {user.displayName || "User"}
+          </DropdownMenuLabel>
+          <DropdownMenuItem asChild>
+            <Link href={`/u/${user.id}`}>Profile</Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/feed">Feed</Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/settings">Settings</Link>
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={handleLogout}>
+          Log out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}

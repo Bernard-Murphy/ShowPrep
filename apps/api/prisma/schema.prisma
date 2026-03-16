@@ -1,0 +1,256 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Seed via: npm run db:seed (tsx prisma/seed.ts)
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum VoiceProvider {
+  VENICE
+  ELEVENLABS
+}
+
+enum VoteTarget {
+  ARTICLE
+  GENCAST
+  COMMENT
+}
+
+enum CommentTarget {
+  ARTICLE
+  GENCAST
+  USER_PROFILE
+}
+
+enum JobType {
+  INITIAL
+  RECURRING
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id                 String    @id @default(uuid())
+  youtubeChannelId   String?   @unique
+  displayName        String?
+  bio                String?
+  role               Role      @default(USER)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  youtubeConnection  YouTubeConnection?
+  articles           Article[]
+  gencasts           Gencast[]
+  votes              Vote[]
+  comments           Comment[]
+  voices             Voice[]
+  processedVideos    ProcessedVideo[]
+  processingJobs     ProcessingJob[]
+  subscriptions      UserSubscription[] @relation("Subscriber")
+  subscribers        UserSubscription[]  @relation("SubscribedTo")
+}
+
+model YouTubeConnection {
+  id                   String   @id @default(uuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channelId            String
+  channelTitle         String?
+  channelThumbnailUrl  String?
+  accessToken          String
+  refreshToken         String
+  tokenExpiresAt       DateTime
+  lastSyncAt           DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  subscriptions        YouTubeSubscription[]
+}
+
+model YouTubeSubscription {
+  id                  String   @id @default(uuid())
+  youtubeConnectionId String
+  connection          YouTubeConnection @relation(fields: [youtubeConnectionId], references: [id], onDelete: Cascade)
+  channelId           String
+  channelTitle        String
+  channelThumbnailUrl String?
+  active              Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([youtubeConnectionId, channelId])
+}
+
+model ProcessedVideo {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  youtubeVideoId  String
+  channelId       String
+  channelTitle    String
+  videoTitle      String
+  description     String?
+  thumbnailUrl    String?
+  publishedAt     DateTime
+  transcript      String   @db.Text
+  processedAt     DateTime?
+  createdAt       DateTime @default(now())
+  article         Article?
+  gencastSources  GencastSource[]
+
+  @@unique([userId, youtubeVideoId])
+}
+
+model Article {
+  id                  String   @id @default(uuid())
+  userId              String
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  processedVideoId    String   @unique
+  processedVideo      ProcessedVideo @relation(fields: [processedVideoId], references: [id], onDelete: Cascade)
+  title               String
+  slug                String   @unique
+  content             String   @db.Text
+  headlineImageUrl    String?
+  sourceChannelTitle  String
+  sourceVideoTitle    String
+  views               Int      @default(0)
+  karma               Int      @default(0)
+  hotScore            Float    @default(0)
+  isPublic            Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  votes               Vote[]
+  comments            Comment[]
+}
+
+model Gencast {
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title            String
+  slug             String   @unique
+  scriptContent    String   @db.Text
+  audioUrl         String?
+  headlineImageUrl String?
+  voiceId          String
+  voice            Voice    @relation(fields: [voiceId], references: [id])
+  duration         Int?
+  views            Int      @default(0)
+  karma            Int      @default(0)
+  hotScore         Float    @default(0)
+  isPublic         Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  sources          GencastSource[]
+  votes            Vote[]
+  comments         Comment[]
+}
+
+model GencastSource {
+  id               String   @id @default(uuid())
+  gencastId        String
+  gencast          Gencast  @relation(fields: [gencastId], references: [id], onDelete: Cascade)
+  processedVideoId String
+  processedVideo   ProcessedVideo @relation(fields: [processedVideoId], references: [id], onDelete: Cascade)
+  createdAt        DateTime @default(now())
+
+  @@unique([gencastId, processedVideoId])
+}
+
+model Voice {
+  id              String   @id @default(uuid())
+  name            String
+  description     String?
+  provider        VoiceProvider
+  providerVoiceId String
+  gender          String?
+  language        String?
+  sampleUrl       String?
+  isDefault       Boolean  @default(false)
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  gencasts        Gencast[]
+
+  @@unique([provider, providerVoiceId])
+}
+
+model Vote {
+  id         String     @id @default(uuid())
+  userId     String
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targetType VoteTarget
+  articleId  String?
+  article    Article?   @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  gencastId  String?
+  gencast    Gencast?   @relation(fields: [gencastId], references: [id], onDelete: Cascade)
+  commentId  String?
+  comment    Comment?   @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  value      Int
+  createdAt  DateTime  @default(now())
+
+  @@unique([userId, targetType, articleId])
+  @@unique([userId, targetType, gencastId])
+  @@unique([userId, targetType, commentId])
+}
+
+model Comment {
+  id                 String        @id @default(uuid())
+  targetType         CommentTarget
+  articleId          String?
+  article            Article?      @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  gencastId          String?
+  gencast            Gencast?      @relation(fields: [gencastId], references: [id], onDelete: Cascade)
+  profileUserId      String?
+  userId             String?
+  user               User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  text               String        @db.VarChar(1000)
+  repliesTo          String?
+  parent             Comment?      @relation("Replies", fields: [repliesTo], references: [id], onDelete: SetNull)
+  replies            Comment[]    @relation("Replies")
+  karma              Int           @default(0)
+  anonId             String?
+  anonTextColor      String?
+  anonTextBackground  String?
+  removed            Boolean      @default(false)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  votes              Vote[]
+}
+
+model UserSubscription {
+  id              String   @id @default(uuid())
+  subscriberId    String
+  subscriber      User     @relation("Subscriber", fields: [subscriberId], references: [id], onDelete: Cascade)
+  subscribedToId  String
+  subscribedTo    User     @relation("SubscribedTo", fields: [subscribedToId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+
+  @@unique([subscriberId, subscribedToId])
+}
+
+model ProcessingJob {
+  id             String     @id @default(uuid())
+  userId         String
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type           JobType
+  status         JobStatus  @default(PENDING)
+  processedCount Int        @default(0)
+  totalCount     Int        @default(0)
+  error          String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime   @default(now())
+}

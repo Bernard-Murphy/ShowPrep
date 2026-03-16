@@ -1,0 +1,159 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+type ArticleEntity {
+  content: String!
+  createdAt: DateTime!
+  headlineImageUrl: String
+  hotScore: Float!
+  id: String!
+  isPublic: Boolean!
+  karma: Int!
+  slug: String!
+  sourceChannelTitle: String!
+  sourceVideoTitle: String!
+  title: String!
+  updatedAt: DateTime!
+  user: UserSummary
+  userId: String!
+  views: Int!
+}
+
+type CommentEntity {
+  anonId: String
+  anonTextBackground: String
+  anonTextColor: String
+  articleId: String
+  createdAt: DateTime!
+  gencastId: String
+  id: String!
+  karma: Int!
+  profileUserId: String
+  removed: Boolean!
+  replies: [CommentEntity!]
+  repliesTo: String
+  targetType: String!
+  text: String!
+  updatedAt: DateTime!
+  user: CommentUser
+  userId: String
+}
+
+type CommentUser {
+  avatarUrl: String
+  displayName: String
+  id: String!
+}
+
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+type FeedConnection {
+  edges: [FeedEdge!]!
+  nextCursor: String
+}
+
+type FeedEdge {
+  cursor: String!
+  node: FeedItem!
+}
+
+union FeedItem = ArticleEntity | GencastEntity
+
+type GencastEntity {
+  audioUrl: String
+  createdAt: DateTime!
+  duration: Int
+  headlineImageUrl: String
+  hotScore: Float!
+  id: String!
+  isPublic: Boolean!
+  karma: Int!
+  scriptContent: String!
+  slug: String!
+  title: String!
+  updatedAt: DateTime!
+  user: UserSummary
+  userId: String!
+  views: Int!
+  voice: VoiceEntity
+  voiceId: String!
+}
+
+type Mutation {
+  articleIncrementViews(slug: String!): Boolean!
+  articleSetPublic(articleId: String!, isPublic: Boolean!): Boolean!
+  createComment(anonId: String, anonTextBackground: String, anonTextColor: String, anonymous: Boolean, profileUserId: String, repliesTo: String, targetId: String, targetType: String!, text: String!): CommentEntity!
+  deleteVoice(id: String!): Boolean!
+  gencastIncrementViews(slug: String!): Boolean!
+  gencastSetPublic(gencastId: String!, isPublic: Boolean!): Boolean!
+  subscribe(subscribedToId: String!): Boolean!
+  syncYouTubeSubscriptions: Boolean!
+  unlinkYouTube: Boolean!
+  unsubscribe(subscribedToId: String!): Boolean!
+  updateProfile(input: UpdateProfileInput!): UserEntity!
+  vote(targetId: String!, targetType: String!, value: Float!): Boolean!
+}
+
+type Query {
+  article(slug: String!): ArticleEntity
+  comments(profileUserId: String, targetId: String!, targetType: String!): [CommentEntity!]!
+  feed(cursor: String, filter: String, limit: Int, search: String, sort: String): FeedConnection!
+  gencast(slug: String!): GencastEntity
+  hotArticles(limit: Int): [ArticleEntity!]!
+  hotGencasts(limit: Int): [GencastEntity!]!
+  isSubscribed(subscribedToId: String!): Boolean!
+  me: UserEntity
+  user(id: String!): UserEntity
+  userVote(targetId: String!, targetType: String!): Float
+  voice(id: String!): VoiceEntity
+  voices(userId: String): [VoiceEntity!]!
+  youtubeAuthUrl: YouTubeAuthUrlResult!
+  youtubeLoginAuthUrl: YouTubeAuthUrlResult!
+}
+
+input UpdateProfileInput {
+  bio: String
+  displayName: String
+}
+
+type UserCount {
+  articles: Int!
+  gencasts: Int!
+  subscribers: Int!
+}
+
+type UserEntity {
+  _count: UserCount
+  avatarUrl: String
+  bio: String
+  createdAt: DateTime!
+  displayName: String
+  id: String!
+}
+
+type UserSummary {
+  avatarUrl: String
+  displayName: String
+  id: String!
+}
+
+type VoiceEntity {
+  description: String
+  gender: String
+  id: String!
+  isDefault: Boolean!
+  language: String
+  name: String!
+  provider: String!
+  providerVoiceId: String!
+  sampleUrl: String
+  userId: String
+}
+
+type YouTubeAuthUrlResult {
+  authUrl: String!
+}
