@@ -33,14 +33,27 @@ export function AuthProvider({
   onOpenAuthDialog?: (tab?: "login" | "register" | "forgot") => void;
 }) {
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [fetchMe, { data, error, loading }] = useLazyQuery(ME_QUERY, {
     fetchPolicy: "network-only",
   });
+
+  useEffect(() => {
+    const syncToken = () => setToken(getStoredToken());
+    syncToken();
+    window.addEventListener("storage", syncToken);
+    window.addEventListener("showprep-auth-changed", syncToken);
+    return () => {
+      window.removeEventListener("storage", syncToken);
+      window.removeEventListener("showprep-auth-changed", syncToken);
+    };
+  }, []);
 
   React.useEffect(() => {
     if (error) {
       setUser(null);
       setStoredToken(null);
+      window.dispatchEvent(new Event("showprep-auth-changed"));
     } else if (data !== undefined) {
       setUser(data?.me ?? null);
     }
@@ -52,8 +65,9 @@ export function AuthProvider({
   }, [fetchMe]);
 
   useEffect(() => {
-    if (getStoredToken()) fetchMe();
-  }, [fetchMe]);
+    if (token) fetchMe();
+    else setUser(null);
+  }, [token, fetchMe]);
 
   const showAuthDialog = useCallback(
     (tab?: "login" | "register" | "forgot") => {

@@ -17,6 +17,7 @@ function AuthCallbackContent() {
     }
     if (token) {
       setStoredToken(token);
+      window.dispatchEvent(new Event("showprep-auth-changed"));
       router.replace("/");
     } else {
       router.replace("/");

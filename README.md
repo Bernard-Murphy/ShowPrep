@@ -22,6 +22,7 @@ Show prep for podcasters: link YouTube, get article summaries and daily audio re
 | `VENICE_API_KEY`          | API   | For AI            | Venice AI API key (text/image/TTS)                                |
 | `ELEVENLABS_API_KEY`      | API   | For custom voices | ElevenLabs API key                                                |
 | `S3_ENDPOINT`             | API   | For uploads       | S3-compatible endpoint (e.g. MinIO or AWS)                        |
+| `S3_BASE_URL`             | API   | For uploads       | Public base URL for static files; uploads return `S3_BASE_URL/key`|
 | `S3_BUCKET`               | API   | For uploads       | Bucket name                                                       |
 | `S3_ACCESS_KEY`           | API   | For uploads       | Access key                                                        |
 | `S3_SECRET_KEY`           | API   | For uploads       | Secret key                                                        |
@@ -88,5 +89,5 @@ Show prep for podcasters: link YouTube, get article summaries and daily audio re
 - **API:** Run Nest in production mode (`npm run build` then `node dist/main` or `npm run start:prod`). Use a process manager (e.g. systemd, PM2). Set all env vars in the table above; use a real Postgres and Redis instance and a strong `JWT_SECRET`. For YouTube, use your production redirect URI.
 - **Web:** Build with `npm run build` and serve with `npm run start` (or your platform’s Node server). Set `NEXT_PUBLIC_GRAPHQL_URL` to your production API GraphQL URL.
 - **Database:** Run migrations with `npx prisma migrate deploy` in `apps/api` against the production `DATABASE_URL`. Run seed once if you need default voices.
-- **Storage:** Use a production S3 bucket (e.g. AWS S3) and set `S3_*`; leave `S3_ENDPOINT` empty or set the AWS endpoint for your region.
+- **Storage:** Use a production S3 bucket (e.g. AWS S3) and set `S3_*`, including `S3_BASE_URL` for public file URLs.
 - **Security:** Use HTTPS, restrict CORS via `CORS_ORIGIN`, and never commit `.env` or `.env.local` (see `.gitignore`).

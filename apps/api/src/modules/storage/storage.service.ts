@@ -14,6 +14,7 @@ export class StorageService {
     const endpoint = this.config.get<string>('S3_ENDPOINT', '');
     const region = this.config.get<string>('S3_REGION', 'us-east-1');
     this.bucket = this.config.get<string>('S3_BUCKET', 'showprep');
+    const baseUrl = this.config.get<string>('S3_BASE_URL', '');
     this.s3 = new S3Client({
       region,
       endpoint: endpoint || undefined,
@@ -25,7 +26,7 @@ export class StorageService {
           }
         : undefined,
     });
-    this.publicBaseUrl = this.config.get<string>('S3_PUBLIC_URL', endpoint ? `${endpoint}/${this.bucket}` : `https://${this.bucket}.s3.${region}.amazonaws.com`);
+    this.publicBaseUrl = baseUrl.replace(/\/$/, '');
   }
 
   async uploadBuffer(key: string, buffer: Buffer, contentType: string): Promise<string> {

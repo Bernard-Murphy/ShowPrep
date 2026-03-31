@@ -4,9 +4,11 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { YouTubeService } from './youtube.service';
 import { YouTubeResolver } from './youtube.resolver';
 import { YouTubeController } from './youtube.controller';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [
+    StorageModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({
