@@ -1,7 +1,11 @@
 import { Resolver, Mutation, Query } from "@nestjs/graphql";
 import { UseGuards } from "@nestjs/common";
 import { YouTubeService } from "./youtube.service";
-import { YouTubeAuthUrlResult } from "./models/youtube.model";
+import {
+  YouTubeAuthUrlResult,
+  YouTubeSubscriptionEntity,
+} from "./models/youtube.model";
+import { Args } from "@nestjs/graphql";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { Public } from "../../common/decorators/public.decorator";
@@ -32,6 +36,22 @@ export class YouTubeResolver {
   @UseGuards(JwtAuthGuard)
   async syncYouTubeSubscriptions(@CurrentUser() user: { id: string }) {
     await this.youtube.syncSubscriptions(user.id);
+    return true;
+  }
+
+  @Query(() => [YouTubeSubscriptionEntity])
+  @UseGuards(JwtAuthGuard)
+  youtubeSubscriptions(@CurrentUser() user: { id: string }) {
+    return this.youtube.listSubscriptions(user.id);
+  }
+
+  @Mutation(() => Boolean)
+  @UseGuards(JwtAuthGuard)
+  async setYouTubeSubscriptionSelection(
+    @CurrentUser() user: { id: string },
+    @Args("channelIds", { type: () => [String] }) channelIds: string[],
+  ) {
+    await this.youtube.setActiveSubscriptions(user.id, channelIds);
     return true;
   }
 }

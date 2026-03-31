@@ -17,8 +17,9 @@ function AuthCallbackContent() {
     }
     if (token) {
       setStoredToken(token);
+      document.cookie = `showprep_token=${encodeURIComponent(token)}; Path=/; Max-Age=${60 * 60 * 24 * 7}; SameSite=Lax`;
       window.dispatchEvent(new Event("showprep-auth-changed"));
-      router.replace("/");
+      router.replace("/onboarding");
     } else {
       router.replace("/");
     }

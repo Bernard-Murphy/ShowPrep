@@ -1,4 +1,4 @@
-import { Resolver, Query, Mutation, Args } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, Int } from '@nestjs/graphql';
 import { GencastsService } from './gencasts.service';
 import { GencastEntity } from './gencasts.model';
 import { UseGuards } from '@nestjs/common';
@@ -12,6 +12,14 @@ export class GencastsResolver {
   @Query(() => GencastEntity, { nullable: true })
   gencast(@Args('slug') slug: string) {
     return this.gencasts.findBySlug(slug);
+  }
+
+  @Query(() => [GencastEntity])
+  userGencasts(
+    @Args('userId') userId: string,
+    @Args('limit', { type: () => Int, nullable: true }) limit?: number,
+  ) {
+    return this.gencasts.listByUser(userId, limit ?? 20);
   }
 
   @Mutation(() => Boolean)

@@ -35,6 +35,9 @@ export class GencastEntity {
   scriptContent: string;
 
   @Field(() => String, { nullable: true })
+  harvestOutline?: string | null;
+
+  @Field(() => String, { nullable: true })
   audioUrl?: string | null;
 
   @Field(() => String, { nullable: true })

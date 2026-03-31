@@ -28,10 +28,15 @@ export class VoicesService {
 
   async getDefaultVoiceId(): Promise<string> {
     const v = await this.prisma.voice.findFirst({
-      where: { isDefault: true, provider: 'VENICE' },
+      where: { isDefault: true, provider: 'ELEVENLABS' },
     });
-    if (!v) throw new ForbiddenException('No default voice configured');
-    return v.id;
+    if (v) return v.id;
+    const fallback = await this.prisma.voice.findFirst({
+      where: { isDefault: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!fallback) throw new ForbiddenException('No default voice configured');
+    return fallback.id;
   }
 
   async createCustomVoice(userId: string, name: string, audioBuffer: Buffer) {

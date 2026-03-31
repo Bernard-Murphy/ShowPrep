@@ -1,4 +1,4 @@
-import { Resolver, Query, Mutation, Args } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, Int } from '@nestjs/graphql';
 import { ArticlesService } from './articles.service';
 import { ArticleEntity } from './articles.model';
 import { UseGuards } from '@nestjs/common';
@@ -12,6 +12,14 @@ export class ArticlesResolver {
   @Query(() => ArticleEntity, { nullable: true })
   article(@Args('slug') slug: string) {
     return this.articles.findBySlug(slug);
+  }
+
+  @Query(() => [ArticleEntity])
+  userArticles(
+    @Args('userId') userId: string,
+    @Args('limit', { type: () => Int, nullable: true }) limit?: number,
+  ) {
+    return this.articles.listByUser(userId, limit ?? 20);
   }
 
   @Mutation(() => Boolean)

@@ -1,10 +1,12 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useQuery } from "@apollo/client";
-import { gql } from "@apollo/client";
+import { gql, useMutation, useQuery } from "@apollo/client";
+import { useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import { Card, CardContent } from "@/components/ui/card";
+import { VoteControls } from "@/components/vote-controls";
+import { CommentsSection } from "@/components/comments-section";
 
 const ARTICLE_QUERY = gql`
   query Article($slug: String!) {
@@ -24,10 +26,22 @@ const ARTICLE_QUERY = gql`
   }
 `;
 
+const ARTICLE_INCREMENT_VIEWS_MUTATION = gql`
+  mutation ArticleIncrementViews($slug: String!) {
+    articleIncrementViews(slug: $slug)
+  }
+`;
+
 export default function ArticlePage() {
   const params = useParams();
   const slug = params?.slug as string;
   const { data, loading } = useQuery(ARTICLE_QUERY, { variables: { slug }, skip: !slug });
+  const [incrementViews] = useMutation(ARTICLE_INCREMENT_VIEWS_MUTATION);
+
+  useEffect(() => {
+    if (!slug) return;
+    incrementViews({ variables: { slug } }).catch(() => {});
+  }, [slug, incrementViews]);
 
   if (loading || !data?.article) {
     return (
@@ -49,14 +63,18 @@ export default function ArticlePage() {
       <p className="text-sm text-muted-foreground mb-4">
         {a.sourceChannelTitle} · {a.sourceVideoTitle}
       </p>
-      <p className="text-xs text-muted-foreground mb-6">
-        {a.views} views · {a.karma} karma
-      </p>
+      <div className="flex items-center justify-between mb-6">
+        <p className="text-xs text-muted-foreground">
+          {a.views} views · {a.karma} karma
+        </p>
+        <VoteControls targetType="ARTICLE" targetId={a.id} karma={a.karma} />
+      </div>
       <Card className="p-6">
         <CardContent className="prose prose-invert dark:prose-invert max-w-none">
           <ReactMarkdown>{a.content}</ReactMarkdown>
         </CardContent>
       </Card>
+      <CommentsSection targetType="ARTICLE" targetId={a.id} />
     </div>
   );
 }

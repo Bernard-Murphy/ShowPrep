@@ -8,7 +8,7 @@ const VENICE_VOICES = [
     providerVoiceId: "af_sky",
     gender: "female",
     language: "American English",
-    isDefault: true,
+    isDefault: false,
   },
   {
     name: "Bella",
@@ -81,7 +81,28 @@ async function main() {
       update: { name: v.name, isDefault: v.isDefault },
     });
   }
-  console.log("Seeded default Venice voices.");
+
+  await prisma.voice.upsert({
+    where: {
+      provider_providerVoiceId: {
+        provider: "ELEVENLABS",
+        providerVoiceId: process.env.ELEVENLABS_DEFAULT_VOICE_ID || "EXAVITQu4vr4xnSDxMaL",
+      },
+    },
+    create: {
+      name: "ElevenLabs Default",
+      provider: "ELEVENLABS",
+      providerVoiceId: process.env.ELEVENLABS_DEFAULT_VOICE_ID || "EXAVITQu4vr4xnSDxMaL",
+      isDefault: true,
+      language: "English",
+    },
+    update: {
+      isDefault: true,
+      name: "ElevenLabs Default",
+    },
+  });
+
+  console.log("Seeded default Venice and ElevenLabs voices.");
 }
 
 main()

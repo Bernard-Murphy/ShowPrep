@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import { useQuery } from "@apollo/client";
-import { gql } from "@apollo/client";
+import { gql, useMutation, useQuery } from "@apollo/client";
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { VoteControls } from "@/components/vote-controls";
+import { CommentsSection } from "@/components/comments-section";
 
 const GENCAST_QUERY = gql`
   query Gencast($slug: String!) {
@@ -14,6 +16,7 @@ const GENCAST_QUERY = gql`
       title
       slug
       scriptContent
+      harvestOutline
       audioUrl
       headlineImageUrl
       views
@@ -25,11 +28,23 @@ const GENCAST_QUERY = gql`
   }
 `;
 
+const GENCAST_INCREMENT_VIEWS_MUTATION = gql`
+  mutation GencastIncrementViews($slug: String!) {
+    gencastIncrementViews(slug: $slug)
+  }
+`;
+
 export default function GencastPage() {
   const params = useParams();
   const slug = params?.slug as string;
   const [showScript, setShowScript] = useState(false);
   const { data, loading } = useQuery(GENCAST_QUERY, { variables: { slug }, skip: !slug });
+  const [incrementViews] = useMutation(GENCAST_INCREMENT_VIEWS_MUTATION);
+
+  useEffect(() => {
+    if (!slug) return;
+    incrementViews({ variables: { slug } }).catch(() => {});
+  }, [slug, incrementViews]);
 
   if (loading || !data?.gencast) {
     return (
@@ -48,9 +63,12 @@ export default function GencastPage() {
         </div>
       )}
       <h1 className="text-3xl font-bold mb-4">{g.title}</h1>
-      <p className="text-xs text-muted-foreground mb-4">
-        {g.views} views · {g.karma} karma
-      </p>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-xs text-muted-foreground">
+          {g.views} views · {g.karma} karma
+        </p>
+        <VoteControls targetType="GENCAST" targetId={g.id} karma={g.karma} />
+      </div>
       {g.audioUrl && (
         <div className="mb-6">
           <audio controls src={g.audioUrl} className="w-full" />
@@ -62,6 +80,11 @@ export default function GencastPage() {
       {showScript && (
         <Card className="p-6 mb-6">
           <CardContent className="whitespace-pre-wrap text-sm">{g.scriptContent}</CardContent>
+        </Card>
+      )}
+      {g.harvestOutline && (
+        <Card className="p-6 mb-6">
+          <CardContent className="whitespace-pre-wrap text-sm">{g.harvestOutline}</CardContent>
         </Card>
       )}
       {g.sources?.length > 0 && (
@@ -76,6 +99,7 @@ export default function GencastPage() {
           </ul>
         </div>
       )}
+      <CommentsSection targetType="GENCAST" targetId={g.id} />
     </div>
   );
 }

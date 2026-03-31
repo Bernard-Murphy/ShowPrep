@@ -27,4 +27,15 @@ export class VoicesResolver {
   deleteVoice(@CurrentUser() user: { id: string }, @Args("id") id: string) {
     return this.voicesService.deleteVoice(id, user.id);
   }
+
+  @Mutation(() => VoiceEntity)
+  @UseGuards(JwtAuthGuard)
+  async createCustomVoice(
+    @CurrentUser() user: { id: string },
+    @Args("name") name: string,
+    @Args("sampleAudioBase64") sampleAudioBase64: string,
+  ) {
+    const audioBuffer = Buffer.from(sampleAudioBase64, "base64");
+    return this.voicesService.createCustomVoice(user.id, name, audioBuffer);
+  }
 }

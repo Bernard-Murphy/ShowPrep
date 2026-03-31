@@ -4,9 +4,17 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import { ProcessingService } from "./processing.service";
 import { VideoProcessingProcessor } from "./processors/video-processing.processor";
 import { YouTubeModule } from "../youtube/youtube.module";
-import { VeniceModule } from "../venice/venice.module";
 import { VoicesModule } from "../voices/voices.module";
 import { StorageModule } from "../storage/storage.module";
+import { OpenAiModule } from "../openai/openai.module";
+import { EmbeddingsModule } from "../embeddings/embeddings.module";
+import { ElevenLabsModule } from "../elevenlabs/elevenlabs.module";
+import { ProcessingResolver } from "./processing.resolver";
+import { ProcessingController } from "./processing.controller";
+import { ProcessingProgressService } from "./processing-progress.service";
+import { VideoHarvestService } from "./video-harvest.service";
+import { TranscriptEmbeddingIndexerService } from "./transcript-embedding-indexer.service";
+import { ContentGenerationService } from "./content-generation.service";
 
 @Module({
   imports: [
@@ -34,11 +42,22 @@ import { StorageModule } from "../storage/storage.module";
       { name: "gencast-generation" },
     ),
     YouTubeModule,
-    VeniceModule,
     VoicesModule,
     StorageModule,
+    OpenAiModule,
+    EmbeddingsModule,
+    ElevenLabsModule,
   ],
-  providers: [ProcessingService, VideoProcessingProcessor],
+  providers: [
+    ProcessingService,
+    ProcessingResolver,
+    ProcessingProgressService,
+    VideoHarvestService,
+    TranscriptEmbeddingIndexerService,
+    ContentGenerationService,
+    VideoProcessingProcessor,
+  ],
+  controllers: [ProcessingController],
   exports: [ProcessingService],
 })
 export class ProcessingModule {}

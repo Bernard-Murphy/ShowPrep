@@ -21,6 +21,13 @@ export interface RecentVideo {
   publishedAt: Date;
 }
 
+type RecentVideoOptions = {
+  lookbackDays: number;
+  maxPerChannel: number;
+  maxTotal: number;
+  channelIds?: string[];
+};
+
 @Injectable()
 export class YouTubeService {
   private readonly logger = new Logger(YouTubeService.name);
@@ -220,6 +227,15 @@ export class YouTubeService {
         });
       }
 
+      try {
+        await this.syncSubscriptions(userId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `Initial subscription sync failed for userId=${userId}: ${message}`,
+        );
+      }
+
       const accessToken = this.jwtService.sign(
         { sub: userId },
         { expiresIn: "7d" },
@@ -363,9 +379,52 @@ export class YouTubeService {
     return total;
   }
 
-  async getRecentVideosFromSubscriptions(
+  async listSubscriptions(userId: string) {
+    const conn = await this.prisma.youTubeConnection.findUnique({
+      where: { userId },
+      include: {
+        subscriptions: {
+          orderBy: [{ active: "desc" }, { channelTitle: "asc" }],
+        },
+      },
+    });
+    if (!conn) return [];
+    return conn.subscriptions;
+  }
+
+  async setActiveSubscriptions(userId: string, channelIds: string[]): Promise<number> {
+    const connection = await this.prisma.youTubeConnection.findUnique({
+      where: { userId },
+    });
+    if (!connection) throw new ForbiddenException("YouTube not linked");
+
+    await this.prisma.$transaction([
+      this.prisma.youTubeSubscription.updateMany({
+        where: { youtubeConnectionId: connection.id },
+        data: { active: false },
+      }),
+      this.prisma.youTubeSubscription.updateMany({
+        where: {
+          youtubeConnectionId: connection.id,
+          channelId: { in: channelIds.length ? channelIds : ["__none__"] },
+        },
+        data: { active: true },
+      }),
+    ]);
+    return channelIds.length;
+  }
+
+  async getRecentVideosFromSubscriptions(userId: string, limit: number): Promise<RecentVideo[]> {
+    return this.getRecentVideosForHarvest(userId, {
+      lookbackDays: 30,
+      maxPerChannel: limit,
+      maxTotal: limit,
+    });
+  }
+
+  async getRecentVideosForHarvest(
     userId: string,
-    limit: number,
+    options: RecentVideoOptions,
   ): Promise<RecentVideo[]> {
     const conn = await this.getConnection(userId);
     if (!conn || conn.subscriptions.length === 0) return [];
@@ -375,8 +434,16 @@ export class YouTubeService {
 
     const youtube = google.youtube({ version: "v3", auth: oauth2Client });
 
+    const lookbackThreshold = new Date(
+      Date.now() - options.lookbackDays * 24 * 60 * 60 * 1000,
+    );
+    const selectedSet = new Set(options.channelIds ?? []);
     const channelIds = conn.subscriptions
-      .filter((s: { active: boolean }) => s.active)
+      .filter(
+        (s: { active: boolean; channelId: string }) =>
+          s.active &&
+          (selectedSet.size === 0 || selectedSet.has(s.channelId)),
+      )
       .map((s: { channelId: string }) => s.channelId);
     const uploadsPlaylistIds: string[] = [];
 
@@ -395,16 +462,21 @@ export class YouTubeService {
     const allVideos: RecentVideo[] = [];
     for (const playlistId of uploadsPlaylistIds) {
       let pageToken: string | undefined;
+      let perChannelCount = 0;
       do {
         const res = await youtube.playlistItems.list({
           part: ["snippet"],
           playlistId,
-          maxResults: Math.min(50, limit - allVideos.length),
+          maxResults: Math.min(50, options.maxPerChannel - perChannelCount),
           pageToken,
         });
         for (const item of res.data.items ?? []) {
           const vid = item.snippet;
           if (!vid?.resourceId?.videoId) continue;
+          const publishedAt = vid.publishedAt
+            ? new Date(vid.publishedAt)
+            : new Date();
+          if (publishedAt < lookbackThreshold) continue;
           allVideos.push({
             youtubeVideoId: vid.resourceId.videoId,
             channelId: vid.channelId ?? "",
@@ -415,18 +487,23 @@ export class YouTubeService {
               vid.thumbnails?.medium?.url ??
               vid.thumbnails?.default?.url ??
               null,
-            publishedAt: vid.publishedAt
-              ? new Date(vid.publishedAt)
-              : new Date(),
+            publishedAt,
           });
+          perChannelCount += 1;
+          if (perChannelCount >= options.maxPerChannel) break;
+          if (allVideos.length >= options.maxTotal) break;
         }
         pageToken = res.data.nextPageToken ?? undefined;
-      } while (pageToken && allVideos.length < limit);
-      if (allVideos.length >= limit) break;
+      } while (
+        pageToken &&
+        perChannelCount < options.maxPerChannel &&
+        allVideos.length < options.maxTotal
+      );
+      if (allVideos.length >= options.maxTotal) break;
     }
 
     allVideos.sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
-    return allVideos.slice(0, limit);
+    return allVideos.slice(0, options.maxTotal);
   }
 
   async getTranscript(youtubeVideoId: string): Promise<string> {

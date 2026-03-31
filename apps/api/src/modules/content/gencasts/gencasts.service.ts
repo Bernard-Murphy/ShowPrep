@@ -34,6 +34,23 @@ export class GencastsService {
     };
   }
 
+  async listByUser(userId: string, limit = 20) {
+    return this.prisma.gencast.findMany({
+      where: { userId, isPublic: true },
+      orderBy: { createdAt: "desc" },
+      take: Math.max(1, Math.min(limit, 100)),
+      include: {
+        user: {
+          select: {
+            id: true,
+            displayName: true,
+            youtubeConnection: { select: { channelThumbnailUrl: true } },
+          },
+        },
+      },
+    });
+  }
+
   async incrementViews(slug: string) {
     await this.prisma.gencast.update({
       where: { slug },

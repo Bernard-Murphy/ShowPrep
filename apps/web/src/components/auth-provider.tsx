@@ -65,8 +65,13 @@ export function AuthProvider({
   }, [fetchMe]);
 
   useEffect(() => {
-    if (token) fetchMe();
-    else setUser(null);
+    if (token) {
+      document.cookie = `showprep_token=${encodeURIComponent(token)}; Path=/; Max-Age=${60 * 60 * 24 * 7}; SameSite=Lax`;
+      fetchMe();
+    } else {
+      document.cookie = "showprep_token=; Path=/; Max-Age=0; SameSite=Lax";
+      setUser(null);
+    }
   }, [token, fetchMe]);
 
   const showAuthDialog = useCallback(

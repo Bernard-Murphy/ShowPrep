@@ -19,6 +19,7 @@ export function AuthWidget() {
 
   const handleLogout = () => {
     setStoredToken(null);
+    document.cookie = "showprep_token=; Path=/; Max-Age=0; SameSite=Lax";
     setUser(null);
     refetchUser();
   };
