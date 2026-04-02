@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { toast } from "sonner";
 
 export function AuthDialog({
   open,
@@ -26,8 +27,14 @@ export function AuthDialog({
       onCompleted: (d) => {
         const url = d?.youtubeLoginAuthUrl?.authUrl;
         if (url) {
+          toast.success("Redirecting to YouTube sign in...");
           window.location.href = url;
+        } else {
+          toast.error("Unable to start YouTube sign in. Please try again.");
         }
+      },
+      onError: () => {
+        toast.error("Unable to start YouTube sign in. Please try again.");
       },
     });
   };

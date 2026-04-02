@@ -89,6 +89,8 @@ model YouTubeSubscription {
   channelId           String
   channelTitle        String
   channelThumbnailUrl String?
+  subscriberCount     Int?
+  lastUploadedAt      DateTime?
   active              Boolean  @default(true)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt

@@ -1,4 +1,9 @@
-import { Injectable, ForbiddenException, Logger } from "@nestjs/common";
+import {
+  Injectable,
+  ForbiddenException,
+  Logger,
+  BadRequestException,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -28,8 +33,16 @@ type RecentVideoOptions = {
   channelIds?: string[];
 };
 
+type ChannelMetadata = {
+  channelTitle: string | null;
+  channelThumbnailUrl: string | null;
+  subscriberCount: number | null;
+  lastUploadedAt: Date | null;
+};
+
 @Injectable()
 export class YouTubeService {
+  private static readonly MAX_SELECTED_CHANNELS = 40;
   private readonly logger = new Logger(YouTubeService.name);
   private readonly clientId: string;
   private readonly clientSecret: string;
@@ -328,6 +341,163 @@ export class YouTubeService {
     return oauth2Client;
   }
 
+  private getMetadataBatchSize(): number {
+    const configured = Number(
+      this.config.get<string>("YOUTUBE_METADATA_CHANNEL_BATCH_SIZE", "50"),
+    );
+    if (!Number.isFinite(configured) || configured <= 0) return 50;
+    return Math.min(50, Math.floor(configured));
+  }
+
+  private getMembershipUpsertConcurrency(): number {
+    const configured = Number(
+      this.config.get<string>("YOUTUBE_MEMBERSHIP_UPSERT_CONCURRENCY", "10"),
+    );
+    if (!Number.isFinite(configured) || configured <= 0) return 10;
+    return Math.min(50, Math.floor(configured));
+  }
+
+  private getMetadataFetchConcurrency(): number {
+    const configured = Number(
+      this.config.get<string>("YOUTUBE_METADATA_FETCH_CONCURRENCY", "8"),
+    );
+    if (!Number.isFinite(configured) || configured <= 0) return 8;
+    return Math.min(20, Math.floor(configured));
+  }
+
+  private getPlaylistLookupConcurrency(): number {
+    const configured = Number(
+      this.config.get<string>("YOUTUBE_PLAYLIST_LOOKUP_CONCURRENCY", "10"),
+    );
+    if (!Number.isFinite(configured) || configured <= 0) return 10;
+    return Math.min(25, Math.floor(configured));
+  }
+
+  private getMetadataUpdateConcurrency(): number {
+    const configured = Number(
+      this.config.get<string>("YOUTUBE_METADATA_UPDATE_CONCURRENCY", "15"),
+    );
+    if (!Number.isFinite(configured) || configured <= 0) return 15;
+    return Math.min(50, Math.floor(configured));
+  }
+
+  private async runWithConcurrency<T, R>(
+    items: T[],
+    concurrency: number,
+    worker: (item: T, index: number) => Promise<R>,
+  ): Promise<R[]> {
+    if (items.length === 0) return [];
+    const limit = Math.max(1, Math.floor(concurrency));
+    const results: R[] = new Array(items.length) as R[];
+    let nextIndex = 0;
+
+    const runWorker = async () => {
+      while (nextIndex < items.length) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        results[currentIndex] = await worker(items[currentIndex], currentIndex);
+      }
+    };
+
+    const workers = Array.from({ length: Math.min(limit, items.length) }, () =>
+      runWorker(),
+    );
+    await Promise.all(workers);
+    return results;
+  }
+
+  private chunkBySize<T>(items: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < items.length; i += size) {
+      chunks.push(items.slice(i, i + size));
+    }
+    return chunks;
+  }
+
+  private async fetchChannelMetadataByIds(
+    youtube: ReturnType<typeof google.youtube>,
+    channelIds: string[],
+  ): Promise<Map<string, ChannelMetadata>> {
+    const uniqueChannelIds = [...new Set(channelIds)].filter(Boolean);
+    const metadataByChannelId = new Map<string, ChannelMetadata>();
+    const uploadsPlaylistByChannelId = new Map<string, string>();
+    const batchSize = this.getMetadataBatchSize();
+
+    const channelBatches = this.chunkBySize(uniqueChannelIds, batchSize);
+    const metadataFetchStartedAt = Date.now();
+    const channelBatchResults = await this.runWithConcurrency(
+      channelBatches,
+      this.getMetadataFetchConcurrency(),
+      async (batch) => {
+        const channelRes = await youtube.channels.list({
+          part: ["snippet", "statistics", "contentDetails"],
+          id: batch,
+        });
+        return channelRes.data.items ?? [];
+      },
+    );
+    for (const batchItems of channelBatchResults) {
+      for (const channel of batchItems) {
+        const channelId = channel.id ?? "";
+        if (!channelId) continue;
+        const rawSubscriberCount = channel.statistics?.subscriberCount;
+        const subscriberCount =
+          rawSubscriberCount && Number.isFinite(Number(rawSubscriberCount))
+            ? Number(rawSubscriberCount)
+            : null;
+        const channelTitle = channel.snippet?.title ?? null;
+        const channelThumbnailUrl =
+          channel.snippet?.thumbnails?.default?.url ??
+          channel.snippet?.thumbnails?.medium?.url ??
+          null;
+        metadataByChannelId.set(channelId, {
+          channelTitle,
+          channelThumbnailUrl,
+          subscriberCount,
+          lastUploadedAt: null,
+        });
+        const uploads = channel.contentDetails?.relatedPlaylists?.uploads;
+        if (uploads) uploadsPlaylistByChannelId.set(channelId, uploads);
+      }
+    }
+    this.logger.log(
+      `Fetched metadata batches for ${uniqueChannelIds.length} channels in ${Date.now() - metadataFetchStartedAt}ms`,
+    );
+
+    const playlistLookups = [...uploadsPlaylistByChannelId.entries()];
+    const playlistLookupStartedAt = Date.now();
+    await this.runWithConcurrency(
+      playlistLookups,
+      this.getPlaylistLookupConcurrency(),
+      async ([channelId, uploadsPlaylistId]) => {
+        try {
+          const playlistRes = await youtube.playlistItems.list({
+            part: ["snippet"],
+            playlistId: uploadsPlaylistId,
+            maxResults: 1,
+          });
+          const publishedAtRaw = playlistRes.data.items?.[0]?.snippet?.publishedAt;
+          const existing = metadataByChannelId.get(channelId);
+          if (!existing) return;
+          metadataByChannelId.set(channelId, {
+            ...existing,
+            lastUploadedAt: publishedAtRaw ? new Date(publishedAtRaw) : null,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.warn(
+            `Failed to load latest upload for channel ${channelId}: ${message}`,
+          );
+        }
+      },
+    );
+    this.logger.log(
+      `Fetched latest upload timestamps for ${playlistLookups.length} channels in ${Date.now() - playlistLookupStartedAt}ms`,
+    );
+
+    return metadataByChannelId;
+  }
+
   async syncSubscriptions(userId: string): Promise<number> {
     const oauth2Client = await this.getOAuth2Client(userId);
     if (!oauth2Client) throw new ForbiddenException("YouTube not linked");
@@ -338,8 +508,12 @@ export class YouTubeService {
     });
     if (!connection) return 0;
 
+    const subscriptions: Array<{
+      channelId: string;
+      channelTitle: string;
+      channelThumbnailUrl: string | null;
+    }> = [];
     let pageToken: string | undefined;
-    let total = 0;
     do {
       const res = await youtube.subscriptions.list({
         part: ["snippet"],
@@ -350,33 +524,131 @@ export class YouTubeService {
       const items = res.data.items ?? [];
       for (const item of items) {
         const channelId = item.snippet?.resourceId?.channelId ?? "";
+        if (!channelId) continue;
         const channelTitle = item.snippet?.title ?? "";
         const thumb = item.snippet?.thumbnails?.default?.url ?? null;
+        subscriptions.push({
+          channelId,
+          channelTitle,
+          channelThumbnailUrl: thumb,
+        });
+      }
+      pageToken = res.data.nextPageToken ?? undefined;
+    } while (pageToken);
+
+    const upsertStartedAt = Date.now();
+    await this.runWithConcurrency(
+      subscriptions,
+      this.getMembershipUpsertConcurrency(),
+      async (subscription) => {
         await this.prisma.youTubeSubscription.upsert({
           where: {
             youtubeConnectionId_channelId: {
               youtubeConnectionId: connection.id,
-              channelId,
+              channelId: subscription.channelId,
             },
           },
           create: {
             youtubeConnectionId: connection.id,
-            channelId,
-            channelTitle,
-            channelThumbnailUrl: thumb,
+            channelId: subscription.channelId,
+            channelTitle: subscription.channelTitle,
+            channelThumbnailUrl: subscription.channelThumbnailUrl,
+            active: false,
           },
-          update: { channelTitle, channelThumbnailUrl: thumb, active: true },
+          update: {
+            channelTitle: subscription.channelTitle,
+            channelThumbnailUrl: subscription.channelThumbnailUrl,
+          },
         });
-        total++;
-      }
-      pageToken = res.data.nextPageToken ?? undefined;
-    } while (pageToken);
+      },
+    );
+    this.logger.log(
+      `Upserted ${subscriptions.length} user subscriptions for user=${userId} in ${Date.now() - upsertStartedAt}ms`,
+    );
 
     await this.prisma.youTubeConnection.update({
       where: { userId },
       data: { lastSyncAt: new Date() },
     });
-    return total;
+    return subscriptions.length;
+  }
+
+  async refreshAllSubscriptionMetadata(): Promise<number> {
+    const distinctChannels = await this.prisma.youTubeSubscription.findMany({
+      distinct: ["channelId"],
+      select: { channelId: true },
+    });
+    const channelIds = distinctChannels
+      .map((channel) => channel.channelId)
+      .filter(Boolean);
+    if (channelIds.length === 0) return 0;
+
+    const connections = await this.prisma.youTubeConnection.findMany({
+      select: { userId: true, lastSyncAt: true },
+      orderBy: [{ lastSyncAt: { sort: "desc", nulls: "last" } }],
+    });
+    if (connections.length === 0) {
+      this.logger.warn("No YouTube connections found for metadata refresh");
+      return 0;
+    }
+
+    let youtubeClient: ReturnType<typeof google.youtube> | null = null;
+    for (const connection of connections) {
+      try {
+        const oauth2Client = await this.getOAuth2Client(connection.userId);
+        if (!oauth2Client) continue;
+        youtubeClient = google.youtube({ version: "v3", auth: oauth2Client });
+        break;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `Unable to build OAuth client for metadata refresh with user ${connection.userId}: ${message}`,
+        );
+      }
+    }
+
+    if (!youtubeClient) {
+      this.logger.warn("Could not initialize YouTube client for metadata refresh");
+      return 0;
+    }
+
+    const metadataByChannelId = await this.fetchChannelMetadataByIds(
+      youtubeClient,
+      channelIds,
+    );
+    let updatedCount = 0;
+    let failedUpdates = 0;
+    const updateStartedAt = Date.now();
+
+    await this.runWithConcurrency(
+      [...metadataByChannelId.entries()],
+      this.getMetadataUpdateConcurrency(),
+      async ([channelId, metadata]) => {
+        try {
+          const result = await this.prisma.youTubeSubscription.updateMany({
+            where: { channelId },
+            data: {
+              channelTitle: metadata.channelTitle ?? undefined,
+              channelThumbnailUrl: metadata.channelThumbnailUrl,
+              subscriberCount: metadata.subscriberCount,
+              lastUploadedAt: metadata.lastUploadedAt,
+            },
+          });
+          updatedCount += result.count;
+        } catch (error) {
+          failedUpdates += 1;
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.warn(
+            `Failed to update metadata rows for channel ${channelId}: ${message}`,
+          );
+        }
+      },
+    );
+    this.logger.log(
+      `Updated metadata for ${metadataByChannelId.size} unique channels in ${Date.now() - updateStartedAt}ms (rowsUpdated=${updatedCount}, failedChannels=${failedUpdates})`,
+    );
+
+    return updatedCount;
   }
 
   async listSubscriptions(userId: string) {
@@ -384,7 +656,11 @@ export class YouTubeService {
       where: { userId },
       include: {
         subscriptions: {
-          orderBy: [{ active: "desc" }, { channelTitle: "asc" }],
+          orderBy: [
+            { active: "desc" },
+            { lastUploadedAt: { sort: "desc", nulls: "last" } },
+            { channelTitle: "asc" },
+          ],
         },
       },
     });
@@ -398,6 +674,13 @@ export class YouTubeService {
     });
     if (!connection) throw new ForbiddenException("YouTube not linked");
 
+    const uniqueChannelIds = [...new Set(channelIds)];
+    if (uniqueChannelIds.length > YouTubeService.MAX_SELECTED_CHANNELS) {
+      throw new BadRequestException(
+        `You can select up to ${YouTubeService.MAX_SELECTED_CHANNELS} channels`,
+      );
+    }
+
     await this.prisma.$transaction([
       this.prisma.youTubeSubscription.updateMany({
         where: { youtubeConnectionId: connection.id },
@@ -406,12 +689,14 @@ export class YouTubeService {
       this.prisma.youTubeSubscription.updateMany({
         where: {
           youtubeConnectionId: connection.id,
-          channelId: { in: channelIds.length ? channelIds : ["__none__"] },
+          channelId: {
+            in: uniqueChannelIds.length ? uniqueChannelIds : ["__none__"],
+          },
         },
         data: { active: true },
       }),
     ]);
-    return channelIds.length;
+    return uniqueChannelIds.length;
   }
 
   async getRecentVideosFromSubscriptions(userId: string, limit: number): Promise<RecentVideo[]> {

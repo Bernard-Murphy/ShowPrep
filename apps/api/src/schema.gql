@@ -63,10 +63,20 @@ type FeedEdge {
 
 union FeedItem = ArticleEntity | GencastEntity
 
+type HarvestEligibilityEntity {
+  canStart: Boolean!
+  cooldownMinutes: Int!
+  isFirstRun: Boolean!
+  nextAvailableAt: DateTime
+  reason: String
+  remainingSeconds: Int!
+}
+
 type GencastEntity {
   audioUrl: String
   createdAt: DateTime!
   duration: Int
+  harvestOutline: String
   headlineImageUrl: String
   hotScore: Float!
   id: String!
@@ -87,9 +97,12 @@ type Mutation {
   articleIncrementViews(slug: String!): Boolean!
   articleSetPublic(articleId: String!, isPublic: Boolean!): Boolean!
   createComment(anonId: String, anonTextBackground: String, anonTextColor: String, anonymous: Boolean, profileUserId: String, repliesTo: String, targetId: String, targetType: String!, text: String!): CommentEntity!
+  createCustomVoice(name: String!, sampleAudioBase64: String!): VoiceEntity!
   deleteVoice(id: String!): Boolean!
   gencastIncrementViews(slug: String!): Boolean!
   gencastSetPublic(gencastId: String!, isPublic: Boolean!): Boolean!
+  setYouTubeSubscriptionSelection(channelIds: [String!]!): Boolean!
+  startHarvest(type: String): ProcessingJobEntity!
   subscribe(subscribedToId: String!): Boolean!
   syncYouTubeSubscriptions: Boolean!
   unlinkYouTube: Boolean!
@@ -98,21 +111,43 @@ type Mutation {
   vote(targetId: String!, targetType: String!, value: Float!): Boolean!
 }
 
+type ProcessingJobEntity {
+  completedAt: DateTime
+  createdAt: DateTime!
+  error: String
+  id: String!
+  message: String
+  processedCount: Int!
+  progress: Int!
+  stage: String
+  startedAt: DateTime
+  status: String!
+  totalCount: Int!
+  type: String!
+  userId: String!
+}
+
 type Query {
   article(slug: String!): ArticleEntity
   comments(profileUserId: String, targetId: String!, targetType: String!): [CommentEntity!]!
   feed(cursor: String, filter: String, limit: Int, search: String, sort: String): FeedConnection!
   gencast(slug: String!): GencastEntity
+  harvestEligibility: HarvestEligibilityEntity!
   hotArticles(limit: Int): [ArticleEntity!]!
   hotGencasts(limit: Int): [GencastEntity!]!
   isSubscribed(subscribedToId: String!): Boolean!
+  latestProcessingJob: ProcessingJobEntity
   me: UserEntity
+  processingJob(jobId: String!): ProcessingJobEntity
   user(id: String!): UserEntity
+  userArticles(limit: Int, userId: String!): [ArticleEntity!]!
+  userGencasts(limit: Int, userId: String!): [GencastEntity!]!
   userVote(targetId: String!, targetType: String!): Float
   voice(id: String!): VoiceEntity
   voices(userId: String): [VoiceEntity!]!
   youtubeAuthUrl: YouTubeAuthUrlResult!
   youtubeLoginAuthUrl: YouTubeAuthUrlResult!
+  youtubeSubscriptions: [YouTubeSubscriptionEntity!]!
 }
 
 input UpdateProfileInput {
@@ -156,4 +191,14 @@ type VoiceEntity {
 
 type YouTubeAuthUrlResult {
   authUrl: String!
+}
+
+type YouTubeSubscriptionEntity {
+  active: Boolean!
+  channelId: String!
+  channelThumbnailUrl: String
+  channelTitle: String!
+  id: String!
+  lastUploadedAt: DateTime
+  subscriberCount: Int
 }

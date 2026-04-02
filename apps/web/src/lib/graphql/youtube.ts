@@ -15,6 +15,8 @@ export const YOUTUBE_SUBSCRIPTIONS_QUERY = gql`
       channelId
       channelTitle
       channelThumbnailUrl
+      subscriberCount
+      lastUploadedAt
       active
     }
   }

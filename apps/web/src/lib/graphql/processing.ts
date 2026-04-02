@@ -32,3 +32,16 @@ export const LATEST_PROCESSING_JOB_QUERY = gql`
     }
   }
 `;
+
+export const HARVEST_ELIGIBILITY_QUERY = gql`
+  query HarvestEligibility {
+    harvestEligibility {
+      canStart
+      isFirstRun
+      cooldownMinutes
+      nextAvailableAt
+      remainingSeconds
+      reason
+    }
+  }
+`;

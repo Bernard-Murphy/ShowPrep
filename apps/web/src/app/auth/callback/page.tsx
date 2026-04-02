@@ -3,6 +3,7 @@
 import { Suspense, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { setStoredToken } from "@/lib/auth-storage";
+import { toast } from "sonner";
 
 function AuthCallbackContent() {
   const searchParams = useSearchParams();
@@ -12,6 +13,7 @@ function AuthCallbackContent() {
     const token = searchParams.get("token");
     const error = searchParams.get("error");
     if (error) {
+      toast.error("Sign in failed. Please try again.");
       router.replace("/");
       return;
     }
@@ -19,8 +21,10 @@ function AuthCallbackContent() {
       setStoredToken(token);
       document.cookie = `showprep_token=${encodeURIComponent(token)}; Path=/; Max-Age=${60 * 60 * 24 * 7}; SameSite=Lax`;
       window.dispatchEvent(new Event("showprep-auth-changed"));
-      router.replace("/onboarding");
+      toast.success("Signed in successfully.");
+      router.replace("/dashboard?section=youtube");
     } else {
+      toast.error("Sign in failed. Please try again.");
       router.replace("/");
     }
   }, [searchParams, router]);

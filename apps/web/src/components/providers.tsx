@@ -2,10 +2,10 @@
 
 import { useState, useCallback } from "react";
 import { ApolloProvider } from "@apollo/client";
-import { Toaster } from "sonner";
 import { apolloClient } from "@/lib/apollo-client";
 import { AuthProvider } from "@/components/auth-provider";
 import { AuthDialog } from "@/components/auth-dialog";
+import { Toaster } from "@/components/ui/sonner";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [authOpen, setAuthOpen] = useState(false);

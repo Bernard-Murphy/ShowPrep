@@ -9,6 +9,7 @@ import {
   CREATE_COMMENT_MUTATION,
 } from "@/lib/graphql/engagement";
 import { useAuth } from "@/components/auth-provider";
+import { toast } from "sonner";
 
 type TargetType = "ARTICLE" | "GENCAST" | "USER_PROFILE";
 
@@ -38,16 +39,20 @@ export function CommentsSection({
       showAuthDialog();
       return;
     }
-    await createComment({
-      variables: {
-        targetType,
-        targetId,
-        profileUserId,
-        text: text.trim(),
-      },
-    });
-    setText("");
-    await refetch();
+    try {
+      await createComment({
+        variables: {
+          targetType,
+          targetId,
+          profileUserId,
+          text: text.trim(),
+        },
+      });
+      setText("");
+      await refetch();
+    } catch {
+      toast.error("Failed to post comment.");
+    }
   };
 
   const comments = data?.comments ?? [];

@@ -41,3 +41,24 @@ export class ProcessingJobEntity {
   @Field(() => Date)
   createdAt: Date;
 }
+
+@ObjectType()
+export class HarvestEligibilityEntity {
+  @Field()
+  canStart: boolean;
+
+  @Field()
+  isFirstRun: boolean;
+
+  @Field(() => Int)
+  cooldownMinutes: number;
+
+  @Field(() => Date, { nullable: true })
+  nextAvailableAt?: Date | null;
+
+  @Field(() => Int)
+  remainingSeconds: number;
+
+  @Field(() => String, { nullable: true })
+  reason?: string | null;
+}

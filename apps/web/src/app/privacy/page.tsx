@@ -58,7 +58,7 @@ export default function PrivacyPage() {
       <ul>
         <li>Request access to the personal data we hold about you</li>
         <li>Request correction or deletion of your data</li>
-        <li>Disconnect your YouTube account at any time from Settings</li>
+        <li>Disconnect your YouTube account at any time from Dashboard</li>
         <li>Delete your account by contacting us</li>
       </ul>
 

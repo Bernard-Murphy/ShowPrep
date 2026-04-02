@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "@apollo/client";
 import { Button } from "@/components/ui/button";
 import { USER_VOTE_QUERY, VOTE_MUTATION } from "@/lib/graphql/engagement";
 import { useAuth } from "@/components/auth-provider";
+import { toast } from "sonner";
 
 export function VoteControls({
   targetType,
@@ -30,8 +31,12 @@ export function VoteControls({
       return;
     }
     const nextValue = myVote === value ? 0 : value;
-    await vote({ variables: { targetType, targetId, value: nextValue } });
-    await refetch();
+    try {
+      await vote({ variables: { targetType, targetId, value: nextValue } });
+      await refetch();
+    } catch {
+      toast.error("Failed to submit vote.");
+    }
   };
 
   return (

@@ -4,6 +4,7 @@ import React, { createContext, useCallback, useContext, useState, useEffect } fr
 import { useLazyQuery } from "@apollo/client";
 import { ME_QUERY } from "@/lib/graphql/auth";
 import { getStoredToken, setStoredToken } from "@/lib/auth-storage";
+import { toast } from "sonner";
 
 export type User = {
   id: string;
@@ -52,6 +53,9 @@ export function AuthProvider({
   React.useEffect(() => {
     if (error) {
       setUser(null);
+      if (getStoredToken()) {
+        toast.error("Your session expired. Please sign in again.");
+      }
       setStoredToken(null);
       window.dispatchEvent(new Event("showprep-auth-changed"));
     } else if (data !== undefined) {

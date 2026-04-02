@@ -3,7 +3,10 @@ import { UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { ProcessingService } from "./processing.service";
-import { ProcessingJobEntity } from "./models/processing.model";
+import {
+  HarvestEligibilityEntity,
+  ProcessingJobEntity,
+} from "./models/processing.model";
 
 @Resolver(() => ProcessingJobEntity)
 export class ProcessingResolver {
@@ -32,5 +35,11 @@ export class ProcessingResolver {
   @UseGuards(JwtAuthGuard)
   latestProcessingJob(@CurrentUser() user: { id: string }) {
     return this.processing.getLatestJob(user.id);
+  }
+
+  @Query(() => HarvestEligibilityEntity)
+  @UseGuards(JwtAuthGuard)
+  harvestEligibility(@CurrentUser() user: { id: string }) {
+    return this.processing.getHarvestEligibility(user.id);
   }
 }

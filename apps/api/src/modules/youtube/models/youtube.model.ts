@@ -1,4 +1,4 @@
-import { ObjectType, Field } from "@nestjs/graphql";
+import { ObjectType, Field, Int } from "@nestjs/graphql";
 
 @ObjectType()
 export class YouTubeAuthUrlResult {
@@ -19,6 +19,12 @@ export class YouTubeSubscriptionEntity {
 
   @Field(() => String, { nullable: true })
   channelThumbnailUrl?: string | null;
+
+  @Field(() => Int, { nullable: true })
+  subscriberCount?: number | null;
+
+  @Field(() => Date, { nullable: true })
+  lastUploadedAt?: Date | null;
 
   @Field()
   active: boolean;

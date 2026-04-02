@@ -1,7 +1,8 @@
-import { Injectable, ForbiddenException } from "@nestjs/common";
+import { Injectable, ForbiddenException, BadRequestException } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { PrismaService } from "../../prisma/prisma.service";
+import { ConfigService } from "@nestjs/config";
 import {
   ProcessingProgressEvent,
   ProcessingProgressService,
@@ -11,12 +12,80 @@ import {
 export class ProcessingService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
     private readonly progress: ProcessingProgressService,
     @InjectQueue("video-processing") private readonly videoQueue: Queue,
     @InjectQueue("gencast-generation") private readonly gencastQueue: Queue,
   ) {}
 
+  private getHarvestCooldownMinutes(): number {
+    const configured = Number(this.config.get<string>("HARVEST_COOLDOWN_MINUTES", "60"));
+    if (!Number.isFinite(configured) || configured < 0) return 60;
+    return Math.floor(configured);
+  }
+
+  async getHarvestEligibility(userId: string) {
+    const cooldownMinutes = this.getHarvestCooldownMinutes();
+    const activeJob = await this.prisma.processingJob.findFirst({
+      where: {
+        userId,
+        status: { in: ["PENDING", "PROCESSING"] },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (activeJob) {
+      return {
+        canStart: false,
+        isFirstRun: false,
+        cooldownMinutes,
+        nextAvailableAt: null,
+        remainingSeconds: 0,
+        reason: "A harvest job is already in progress.",
+      };
+    }
+
+    const latestCompleted = await this.prisma.processingJob.findFirst({
+      where: { userId, status: "COMPLETED" },
+      orderBy: { completedAt: "desc" },
+    });
+    if (!latestCompleted?.completedAt) {
+      return {
+        canStart: true,
+        isFirstRun: true,
+        cooldownMinutes,
+        nextAvailableAt: null,
+        remainingSeconds: 0,
+        reason: null,
+      };
+    }
+
+    const nextAvailableAt = new Date(
+      latestCompleted.completedAt.getTime() + cooldownMinutes * 60 * 1000,
+    );
+    const remainingMs = nextAvailableAt.getTime() - Date.now();
+    const remainingSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+
+    return {
+      canStart: remainingSeconds === 0,
+      isFirstRun: false,
+      cooldownMinutes,
+      nextAvailableAt,
+      remainingSeconds,
+      reason:
+        remainingSeconds === 0
+          ? null
+          : `Please wait ${remainingSeconds} seconds before generating again.`,
+    };
+  }
+
   async enqueueVideoProcessing(userId: string, type: "INITIAL" | "RECURRING") {
+    const eligibility = await this.getHarvestEligibility(userId);
+    if (!eligibility.canStart) {
+      throw new BadRequestException(
+        eligibility.reason ?? "Harvest is not available right now.",
+      );
+    }
+
     const processingJob = await this.prisma.processingJob.create({
       data: {
         userId,

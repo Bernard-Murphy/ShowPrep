@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { setStoredToken } from "@/lib/auth-storage";
+import { toast } from "sonner";
 
 export function AuthWidget() {
   const { user, showAuthDialog, setUser, refetchUser } = useAuth();
@@ -22,6 +23,7 @@ export function AuthWidget() {
     document.cookie = "showprep_token=; Path=/; Max-Age=0; SameSite=Lax";
     setUser(null);
     refetchUser();
+    toast.success("Logged out.");
   };
 
   if (!user) {
@@ -59,17 +61,14 @@ export function AuthWidget() {
             {user.displayName || "User"}
           </DropdownMenuLabel>
           <DropdownMenuItem asChild>
-            <Link href={`/u/${user.id}`}>Profile</Link>
+            <Link href="/dashboard">Dashboard</Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
             <Link href="/feed">Feed</Link>
           </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link href="/settings">Settings</Link>
-          </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handleLogout}>
+        <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={handleLogout}>
           Log out
         </DropdownMenuItem>
       </DropdownMenuContent>
