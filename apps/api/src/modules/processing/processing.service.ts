@@ -24,6 +24,12 @@ export class ProcessingService {
     return Math.floor(configured);
   }
 
+  /** When true, time-based harvest cooldown is skipped (active-job guard still applies). */
+  private isHarvestDevBypass(): boolean {
+    const raw = this.config.get<string>("IS_DEV", "false") ?? "false";
+    return raw.toLowerCase() === "true" || raw === "1";
+  }
+
   async getHarvestEligibility(userId: string) {
     const cooldownMinutes = this.getHarvestCooldownMinutes();
     const activeJob = await this.prisma.processingJob.findFirst({
@@ -48,7 +54,20 @@ export class ProcessingService {
       where: { userId, status: "COMPLETED" },
       orderBy: { completedAt: "desc" },
     });
-    if (!latestCompleted?.completedAt) {
+    const isFirstRun = !latestCompleted?.completedAt;
+
+    if (this.isHarvestDevBypass()) {
+      return {
+        canStart: true,
+        isFirstRun,
+        cooldownMinutes,
+        nextAvailableAt: null,
+        remainingSeconds: 0,
+        reason: null,
+      };
+    }
+
+    if (isFirstRun) {
       return {
         canStart: true,
         isFirstRun: true,
@@ -60,7 +79,7 @@ export class ProcessingService {
     }
 
     const nextAvailableAt = new Date(
-      latestCompleted.completedAt.getTime() + cooldownMinutes * 60 * 1000,
+      latestCompleted!.completedAt!.getTime() + cooldownMinutes * 60 * 1000,
     );
     const remainingMs = nextAvailableAt.getTime() - Date.now();
     const remainingSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
@@ -71,19 +90,18 @@ export class ProcessingService {
       cooldownMinutes,
       nextAvailableAt,
       remainingSeconds,
-      reason:
-        remainingSeconds === 0
-          ? null
-          : `Please wait ${remainingSeconds} seconds before generating again.`,
+      reason: null,
     };
   }
 
   async enqueueVideoProcessing(userId: string, type: "INITIAL" | "RECURRING") {
     const eligibility = await this.getHarvestEligibility(userId);
     if (!eligibility.canStart) {
-      throw new BadRequestException(
-        eligibility.reason ?? "Harvest is not available right now.",
-      );
+      const fallback =
+        eligibility.nextAvailableAt != null
+          ? "Harvest cooldown active. Try again when the cooldown ends."
+          : "Harvest is not available right now.";
+      throw new BadRequestException(eligibility.reason ?? fallback);
     }
 
     const processingJob = await this.prisma.processingJob.create({

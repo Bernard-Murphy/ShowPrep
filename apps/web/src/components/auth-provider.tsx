@@ -3,7 +3,7 @@
 import React, { createContext, useCallback, useContext, useState, useEffect } from "react";
 import { useLazyQuery } from "@apollo/client";
 import { ME_QUERY } from "@/lib/graphql/auth";
-import { getStoredToken, setStoredToken } from "@/lib/auth-storage";
+import { getStoredToken, setStoredToken, syncAuthCookie } from "@/lib/auth-storage";
 import { toast } from "sonner";
 
 export type User = {
@@ -70,10 +70,10 @@ export function AuthProvider({
 
   useEffect(() => {
     if (token) {
-      document.cookie = `showprep_token=${encodeURIComponent(token)}; Path=/; Max-Age=${60 * 60 * 24 * 7}; SameSite=Lax`;
+      syncAuthCookie(token);
       fetchMe();
     } else {
-      document.cookie = "showprep_token=; Path=/; Max-Age=0; SameSite=Lax";
+      syncAuthCookie(null);
       setUser(null);
     }
   }, [token, fetchMe]);

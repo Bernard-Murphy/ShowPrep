@@ -15,6 +15,7 @@ import { ProcessingProgressService } from "./processing-progress.service";
 import { VideoHarvestService } from "./video-harvest.service";
 import { TranscriptEmbeddingIndexerService } from "./transcript-embedding-indexer.service";
 import { ContentGenerationService } from "./content-generation.service";
+import { TranscriptPrefetchProcessor } from "./processors/transcript-prefetch.processor";
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { ContentGenerationService } from "./content-generation.service";
     BullModule.registerQueue(
       { name: "video-processing" },
       { name: "gencast-generation" },
+      { name: "transcript-prefetch" },
     ),
     YouTubeModule,
     VoicesModule,
@@ -56,6 +58,7 @@ import { ContentGenerationService } from "./content-generation.service";
     TranscriptEmbeddingIndexerService,
     ContentGenerationService,
     VideoProcessingProcessor,
+    TranscriptPrefetchProcessor,
   ],
   controllers: [ProcessingController],
   exports: [ProcessingService],

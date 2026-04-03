@@ -43,6 +43,12 @@ enum JobStatus {
   FAILED
 }
 
+enum TranscriptCacheStatus {
+  READY
+  UNAVAILABLE
+  FAILED
+}
+
 model User {
   id                 String    @id @default(uuid())
   youtubeChannelId   String?   @unique
@@ -117,6 +123,19 @@ model ProcessedVideo {
   embeddingChunks VideoEmbeddingChunk[]
 
   @@unique([userId, youtubeVideoId])
+}
+
+model VideoTranscriptCache {
+  youtubeVideoId String                @id
+  transcript     String?               @db.Text
+  status         TranscriptCacheStatus
+  source         String?
+  error          String?
+  lastAttemptAt  DateTime?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@index([status, updatedAt])
 }
 
 model Article {

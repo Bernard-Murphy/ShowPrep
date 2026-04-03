@@ -103,6 +103,17 @@ export class VideoProcessingProcessor extends WorkerHost {
       await job.updateProgress(15);
       const candidates = await this.harvest.collectHarvestCandidates(userId);
       const videos = candidates.videos;
+      this.logger.log(
+        `Harvest candidate summary user=${userId}: selected=${videos.length}, skippedDuplicate=${candidates.skippedAsDuplicate}, skippedNonInformational=${candidates.skippedAsNonInformational}`,
+      );
+      if (videos.length > 0) {
+        this.logger.log(
+          `Harvest candidate sample user=${userId}: ${videos
+            .slice(0, 10)
+            .map((v) => `${v.youtubeVideoId}:${v.videoTitle}`)
+            .join(" | ")}`,
+        );
+      }
 
       await this.updateJob({
         processingJobId,
@@ -123,9 +134,31 @@ export class VideoProcessingProcessor extends WorkerHost {
         transcript: string;
       }> = [];
 
+      let ingested = 0;
+      let transcriptMissing = 0;
       for (let i = 0; i < videos.length; i += 1) {
         const candidate = videos[i];
         const transcript = await this.youtube.getTranscript(candidate.youtubeVideoId);
+        if (!transcript?.trim()) {
+          transcriptMissing += 1;
+          this.logger.warn(
+            `Skipping video without transcript: ${candidate.videoTitle} (${candidate.youtubeVideoId})`,
+          );
+          await this.updateJob({
+            processingJobId,
+            userId,
+            stage: 'ingest_transcripts',
+            message: `Checked ${i + 1} / ${videos.length} (${ingested} ingested)`,
+            progress: Math.min(70, 20 + Math.floor(((i + 1) / Math.max(videos.length, 1)) * 50)),
+            processedCount: ingested,
+            totalCount: videos.length,
+          });
+          await job.updateProgress(
+            Math.min(70, 20 + Math.floor(((i + 1) / Math.max(videos.length, 1)) * 50)),
+          );
+          continue;
+        }
+
         const processed = await this.prisma.processedVideo.upsert({
           where: {
             userId_youtubeVideoId: {
@@ -163,6 +196,10 @@ export class VideoProcessingProcessor extends WorkerHost {
           videoTitle: processed.videoTitle,
           transcript: processed.transcript,
         });
+        ingested += 1;
+        this.logger.log(
+          `Transcript accepted for video=${candidate.youtubeVideoId}, title=${candidate.videoTitle}, transcriptLength=${transcript.length}`,
+        );
 
         await this.indexer.indexTranscript({
           userId,
@@ -174,9 +211,9 @@ export class VideoProcessingProcessor extends WorkerHost {
           processingJobId,
           userId,
           stage: 'embed_transcripts',
-          message: `Embedded transcript ${i + 1} / ${videos.length}`,
+          message: `Embedded transcript ${ingested} (${i + 1} / ${videos.length} checked)`,
           progress: Math.min(70, 20 + Math.floor(((i + 1) / Math.max(videos.length, 1)) * 50)),
-          processedCount: i + 1,
+          processedCount: ingested,
           totalCount: videos.length,
         });
         await job.updateProgress(
@@ -184,13 +221,26 @@ export class VideoProcessingProcessor extends WorkerHost {
         );
       }
 
+      const completionMessage =
+        videos.length === 0
+          ? 'No videos to process'
+          : ingested === 0
+            ? 'No transcripts available for selected videos'
+            : 'Harvest completed';
+      this.logger.log(
+        `Harvest transcript summary user=${userId}: checked=${videos.length}, ingested=${ingested}, missingTranscript=${transcriptMissing}`,
+      );
+
       await this.updateJob({
         processingJobId,
         userId,
         stage: 'generate_content',
-        message: 'Generating summaries, gencast script, and outline',
+        message:
+          ingested === 0
+            ? 'Skipping content generation (no transcripts ingested)'
+            : 'Generating summaries, gencast script, and outline',
         progress: 75,
-        processedCount: videos.length,
+        processedCount: ingested,
         totalCount: videos.length,
       });
       await job.updateProgress(75);
@@ -210,9 +260,9 @@ export class VideoProcessingProcessor extends WorkerHost {
         data: {
           status: 'COMPLETED',
           stage: 'completed',
-          message: 'Harvest completed',
+          message: completionMessage,
           progress: 100,
-          processedCount: videos.length,
+          processedCount: ingested,
           totalCount: videos.length,
           completedAt: new Date(),
           error: null,
@@ -224,9 +274,9 @@ export class VideoProcessingProcessor extends WorkerHost {
         userId,
         status: 'COMPLETED',
         stage: 'completed',
-        message: 'Harvest completed',
+        message: completionMessage,
         progress: 100,
-        processedCount: videos.length,
+        processedCount: ingested,
         totalCount: videos.length,
         createdAt: new Date().toISOString(),
       });

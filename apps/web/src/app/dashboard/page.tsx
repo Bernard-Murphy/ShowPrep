@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useMemo, useEffect, useRef, useState } from "react";
 import { useLazyQuery, useMutation, useQuery } from "@apollo/client";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
@@ -24,6 +24,7 @@ import {
 import { USER_ARTICLES_QUERY, USER_GENCASTS_QUERY } from "@/lib/graphql/content";
 import {
   HARVEST_ELIGIBILITY_QUERY,
+  LATEST_PROCESSING_JOB_QUERY,
   START_HARVEST_MUTATION,
 } from "@/lib/graphql/processing";
 import { ArticleCard } from "@/components/article-card";
@@ -32,8 +33,19 @@ import { ProfileContent } from "@/components/profile-content";
 import { toast } from "sonner";
 import BouncyClick from "@/components/ui/bouncy-click";
 import { FileText, Radio, UserRound } from "lucide-react";
+import Spinner from "@/components/ui/spinner";
+import { HarvestProgressStream } from "@/components/harvest-progress-stream";
 
 const MAX_SELECTED_CHANNELS = 40;
+
+/** Matches backend message in ProcessingService.getHarvestEligibility when a job is active. */
+const HARVEST_IN_PROGRESS_REASON = "A harvest job is already in progress.";
+
+function formatHarvestCooldown(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
 type DashboardSection = "profile" | "youtube" | "content";
 
 type SortOption = "recentlyUploaded" | "aToZ" | "zToA" | "mostSubscribers";
@@ -106,6 +118,10 @@ function DashboardContent() {
     HARVEST_ELIGIBILITY_QUERY,
     { skip: !user },
   );
+  const { data: latestJobData, refetch: refetchLatestJob } = useQuery(
+    LATEST_PROCESSING_JOB_QUERY,
+    { skip: !user },
+  );
   const { data: articlesData } = useQuery(USER_ARTICLES_QUERY, {
     variables: { userId: user?.id, limit: 24 },
     skip: !user?.id,
@@ -122,11 +138,78 @@ function DashboardContent() {
   );
   const [voiceName, setVoiceName] = useState("");
   const [voiceFile, setVoiceFile] = useState<File | null>(null);
+  const [activeHarvestJobId, setActiveHarvestJobId] = useState<string | null>(null);
 
   const subscriptions: SubscriptionItem[] = data?.youtubeSubscriptions ?? [];
   const harvestEligibility = harvestEligibilityData?.harvestEligibility;
   const isFirstRun = Boolean(harvestEligibility?.isFirstRun);
   const firstRunPreselectAppliedRef = useRef(false);
+
+  const inHarvestProgress =
+    harvestEligibility?.reason === HARVEST_IN_PROGRESS_REASON;
+  const nextAvailableMs = harvestEligibility?.nextAvailableAt
+    ? new Date(harvestEligibility.nextAvailableAt).getTime()
+    : null;
+  const inTimeCooldown = Boolean(
+    harvestEligibility &&
+    !harvestEligibility.canStart &&
+    !inHarvestProgress &&
+    nextAvailableMs != null,
+  );
+
+  const [harvestCooldownTick, setHarvestCooldownTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (!inTimeCooldown) return;
+    const id = window.setInterval(() => setHarvestCooldownTick(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [inTimeCooldown]);
+
+  const harvestCooldownRemainingSec =
+    nextAvailableMs != null
+      ? Math.max(0, Math.ceil((nextAvailableMs - harvestCooldownTick) / 1000))
+      : 0;
+
+  const prevHarvestCooldownSecRef = useRef(harvestCooldownRemainingSec);
+  useEffect(() => {
+    if (
+      prevHarvestCooldownSecRef.current > 0 &&
+      harvestCooldownRemainingSec === 0 &&
+      nextAvailableMs != null
+    ) {
+      void refetchEligibility();
+    }
+    prevHarvestCooldownSecRef.current = harvestCooldownRemainingSec;
+  }, [harvestCooldownRemainingSec, nextAvailableMs, refetchEligibility]);
+
+  const effectiveHarvestCanStart =
+    Boolean(harvestEligibility?.canStart) ||
+    (!inHarvestProgress &&
+      nextAvailableMs != null &&
+      harvestCooldownRemainingSec === 0);
+
+  useEffect(() => {
+    const job = latestJobData?.latestProcessingJob;
+    if (!job) return;
+    if (job.status === "PENDING" || job.status === "PROCESSING") {
+      setActiveHarvestJobId(job.id);
+    } else {
+      setActiveHarvestJobId((current) => (current === job.id ? null : current));
+    }
+  }, [
+    latestJobData?.latestProcessingJob?.id,
+    latestJobData?.latestProcessingJob?.status,
+  ]);
+
+  const handleHarvestTerminal = useCallback(() => {
+    setActiveHarvestJobId(null);
+    void refetchEligibility();
+    void refetchLatestJob();
+  }, [refetchEligibility, refetchLatestJob]);
+
+  const handleHarvestStreamError = useCallback(() => {
+    void refetchLatestJob();
+    void refetchEligibility();
+  }, [refetchLatestJob, refetchEligibility]);
 
   const activeSection = useMemo<DashboardSection>(() => {
     const section = searchParams.get("section");
@@ -218,14 +301,6 @@ function DashboardContent() {
   const actionRowRef = useRef<HTMLDivElement | null>(null);
   const [showFloatingActions, setShowFloatingActions] = useState(false);
 
-  if (!user) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <p>Sign in to access your dashboard.</p>
-      </div>
-    );
-  }
-
   const toggleSelection = (channelId: string) => {
     setSelectionMessage(null);
     setSelected((previous) => {
@@ -236,7 +311,7 @@ function DashboardContent() {
     });
   };
 
-  const handleSaveAndMaybeGenerate = async () => {
+  const handleSaveSelectedChannels = async () => {
     if (selected.length > MAX_SELECTED_CHANNELS) {
       const message = `You can select up to ${MAX_SELECTED_CHANNELS} channels for generation.`;
       setSelectionMessage(message);
@@ -247,23 +322,31 @@ function DashboardContent() {
     try {
       await setSelection({ variables: { channelIds: selected } });
       await refetch();
-      if (isFirstRun) {
-        await startHarvest({ variables: { type: "INITIAL" } });
-        toast.success("Selection saved. Generation started.");
-      } else {
-        toast.success("Channel selection saved.");
-      }
-      await refetchEligibility();
+      toast.success("Channel selection saved.");
     } catch {
-      toast.error("Failed to complete action.");
+      toast.error("Failed to save channel selection.");
     }
   };
 
-  const handleGenerateNew = async () => {
+  const handleGenerateContent = async () => {
+    if (selected.length > MAX_SELECTED_CHANNELS) {
+      const message = `You can select up to ${MAX_SELECTED_CHANNELS} channels for generation.`;
+      setSelectionMessage(message);
+      toast.error(message);
+      return;
+    }
+
     try {
-      await startHarvest({ variables: { type: "RECURRING" } });
+      await setSelection({ variables: { channelIds: selected } });
+      const result = await startHarvest({
+        variables: { type: isFirstRun ? "INITIAL" : "RECURRING" },
+      });
+      const newJobId = result.data?.startHarvest?.id as string | undefined;
+      if (newJobId) setActiveHarvestJobId(newJobId);
       toast.success("Generation started.");
+      await refetch();
       await refetchEligibility();
+      await refetchLatestJob();
     } catch {
       toast.error("Unable to start generation right now.");
     }
@@ -288,6 +371,14 @@ function DashboardContent() {
       window.removeEventListener("resize", updateFloatingActions);
     };
   }, [subscriptions.length]);
+
+  if (!user) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <p>Sign in to access your dashboard.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full px-4 py-8 pb-28">
@@ -401,7 +492,7 @@ function DashboardContent() {
                             });
                         }}
                       >
-                        {linking ? "Redirecting..." : "Link YouTube"}
+                        {linking ? <><Spinner size="sm" className="mr-2" /> Redirecting...</> : "Link YouTube"}
                       </Button>
                       <Button
                         variant="outline"
@@ -423,7 +514,7 @@ function DashboardContent() {
                           }
                         }}
                       >
-                        {syncing ? "Syncing..." : "Resync subscriptions"}
+                        {syncing ? <><Spinner size="sm" className="mr-2" /> Syncing</> : "Resync subscriptions"}
                       </Button>
                       <Button
                         variant="outline"
@@ -439,7 +530,7 @@ function DashboardContent() {
                           }
                         }}
                       >
-                        {unlinking ? "Unlinking..." : "Unlink YouTube"}
+                        {unlinking ? <><Spinner size="sm" className="mr-2" /> Unlinking...</> : "Unlink YouTube"}
                       </Button>
                       <Button
                         variant="outline"
@@ -454,7 +545,7 @@ function DashboardContent() {
                         }}
                         disabled={subscriptions.length === 0}
                       >
-                        {areAllChannelsSelected ? "Deselect all" : "Select all"}
+                        {areAllChannelsSelected ? <><Spinner size="sm" className="mr-2" /> Deselect all</> : "Select all"}
                       </Button>
                     </div>
                     <div className="flex flex-col gap-3 md:flex-row">
@@ -464,14 +555,7 @@ function DashboardContent() {
                         placeholder="Search channels"
                         className="md:max-w-sm"
                       />
-                      <label className="flex h-10 items-center gap-2 rounded-md border border-input px-3 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={showOnlySelected}
-                          onChange={(event) => setShowOnlySelected(event.target.checked)}
-                        />
-                        Show only selected
-                      </label>
+
                       <select
                         className="h-10 rounded-md border border-input bg-background px-3 text-sm md:w-56"
                         value={sortBy}
@@ -532,7 +616,7 @@ function DashboardContent() {
                         }
                       }}
                     >
-                      {creatingVoice ? "Creating..." : "Create custom voice"}
+                      {creatingVoice ? <><Spinner size="sm" className="mr-2" /> Creating...</> : "Create custom voice"}
                     </Button>
                     <div className="space-y-1">
                       {(voicesData?.voices ?? []).map(
@@ -587,40 +671,55 @@ function DashboardContent() {
                     className="flex flex-wrap items-center justify-between gap-3 border-b pb-3"
                   >
                     <div className="flex flex-wrap gap-2">
+                      <Button variant="secondary" onClick={() => setShowOnlySelected(!showOnlySelected)}>{showOnlySelected ? "Show all channels" : "Show only selected"}</Button>
                       <Button
                         size="sm"
-                        onClick={handleSaveAndMaybeGenerate}
-                        disabled={saving || startingHarvest}
+                        onClick={handleSaveSelectedChannels}
+                        disabled={saving}
                       >
-                        {saving || startingHarvest
-                          ? "Working..."
-                          : isFirstRun
-                            ? "Save selection and generate now"
-                            : "Save selection"}
+                        {saving ? <><Spinner size="sm" className="mr-2" /> Saving...</> : "Save selected channels"}
                       </Button>
-                      {!isFirstRun && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={!harvestEligibility?.canStart || startingHarvest}
-                          onClick={handleGenerateNew}
-                        >
-                          {startingHarvest
-                            ? "Starting..."
-                            : "Generate new Gencast/articles"}
-                        </Button>
-                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          !effectiveHarvestCanStart || startingHarvest || selected.length === 0
+                        }
+                        onClick={handleGenerateContent}
+                      >
+                        {startingHarvest ? <><Spinner size="sm" className="mr-2" /> Starting...</> : "Generate summaries"}
+                      </Button>
                     </div>
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <p className={cn(isOverSelectionLimit && "text-destructive")}>
                         Selected channels: {selected.length}/{MAX_SELECTED_CHANNELS}
                       </p>
                       {selectionMessage && <p className="text-destructive">{selectionMessage}</p>}
-                      {!harvestEligibility?.canStart && harvestEligibility?.reason && (
+                      {inHarvestProgress && harvestEligibility?.reason && (
                         <p className="text-destructive">{harvestEligibility.reason}</p>
                       )}
+                      {inTimeCooldown && harvestCooldownRemainingSec > 0 && (
+                        <p className="text-destructive">
+                          Please wait {formatHarvestCooldown(harvestCooldownRemainingSec)} before
+                          generating again.
+                        </p>
+                      )}
+                      {!harvestEligibility?.canStart &&
+                        !inHarvestProgress &&
+                        !(inTimeCooldown && harvestCooldownRemainingSec > 0) &&
+                        harvestEligibility?.reason && (
+                          <p className="text-destructive">{harvestEligibility.reason}</p>
+                        )}
                     </div>
                   </div>
+
+                  {activeHarvestJobId && (
+                    <HarvestProgressStream
+                      jobId={activeHarvestJobId}
+                      onTerminal={handleHarvestTerminal}
+                      onStreamError={handleHarvestStreamError}
+                    />
+                  )}
 
                   {loading ? (
                     <p className="text-xs text-muted-foreground">Loading subscriptions...</p>
@@ -690,18 +789,31 @@ function DashboardContent() {
                 Selected channels: {selected.length}/{MAX_SELECTED_CHANNELS}
               </p>
               {selectionMessage && <p className="text-destructive">{selectionMessage}</p>}
+              {inHarvestProgress && harvestEligibility?.reason && (
+                <p className="text-destructive">{harvestEligibility.reason}</p>
+              )}
+              {inTimeCooldown && harvestCooldownRemainingSec > 0 && (
+                <p className="text-destructive">
+                  Please wait {formatHarvestCooldown(harvestCooldownRemainingSec)} before generating
+                  again.
+                </p>
+              )}
             </div>
-            <Button
-              size="sm"
-              onClick={handleSaveAndMaybeGenerate}
-              disabled={saving || startingHarvest}
-            >
-              {saving || startingHarvest
-                ? "Working..."
-                : isFirstRun
-                  ? "Save selection and generate now"
-                  : "Save selection"}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={handleSaveSelectedChannels} disabled={saving}>
+                {saving ? <><Spinner size="sm" className="mr-2" /> Saving...</> : "Save selected channels"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={
+                  !effectiveHarvestCanStart || startingHarvest || selected.length === 0
+                }
+                onClick={handleGenerateContent}
+              >
+                {startingHarvest ? <><Spinner size="sm" className="mr-2" /> Starting...</> : "Generate summaries"}
+              </Button>
+            </div>
           </div>
         </div>
       )}

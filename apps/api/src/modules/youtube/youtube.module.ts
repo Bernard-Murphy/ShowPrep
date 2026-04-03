@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from "@nestjs/bullmq";
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { YouTubeService } from './youtube.service';
@@ -9,6 +10,7 @@ import { StorageModule } from '../storage/storage.module';
 @Module({
   imports: [
     StorageModule,
+    BullModule.registerQueue({ name: "transcript-prefetch" }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({

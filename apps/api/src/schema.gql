@@ -63,15 +63,6 @@ type FeedEdge {
 
 union FeedItem = ArticleEntity | GencastEntity
 
-type HarvestEligibilityEntity {
-  canStart: Boolean!
-  cooldownMinutes: Int!
-  isFirstRun: Boolean!
-  nextAvailableAt: DateTime
-  reason: String
-  remainingSeconds: Int!
-}
-
 type GencastEntity {
   audioUrl: String
   createdAt: DateTime!
@@ -91,6 +82,15 @@ type GencastEntity {
   views: Int!
   voice: VoiceEntity
   voiceId: String!
+}
+
+type HarvestEligibilityEntity {
+  canStart: Boolean!
+  cooldownMinutes: Int!
+  isFirstRun: Boolean!
+  nextAvailableAt: DateTime
+  reason: String
+  remainingSeconds: Int!
 }
 
 type Mutation {

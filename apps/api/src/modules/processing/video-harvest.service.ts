@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../prisma/prisma.service";
 import { OpenAiService } from "../openai/openai.service";
@@ -12,6 +12,7 @@ type HarvestResult = {
 
 @Injectable()
 export class VideoHarvestService {
+  private readonly logger = new Logger(VideoHarvestService.name);
   private readonly lookbackDays: number;
   private readonly maxPerChannel: number;
   private readonly maxPerUser: number;
@@ -93,14 +94,21 @@ export class VideoHarvestService {
     userId: string,
     selectedChannelIds?: string[],
   ): Promise<HarvestResult> {
+    this.logger.log(
+      `collectHarvestCandidates start user=${userId}, selectedChannelIds=${selectedChannelIds?.length ?? 0}, lookbackDays=${this.lookbackDays}, maxPerChannel=${this.maxPerChannel}, maxPerUser=${this.maxPerUser}`,
+    );
     const candidates = await this.youtube.getRecentVideosForHarvest(userId, {
       lookbackDays: this.lookbackDays,
       maxPerChannel: this.maxPerChannel,
       maxTotal: this.maxPerUser,
       channelIds: selectedChannelIds,
     });
+    this.logger.log(
+      `collectHarvestCandidates recent-videos user=${userId}: count=${candidates.length}`,
+    );
 
     if (candidates.length === 0) {
+      this.logger.log(`collectHarvestCandidates no candidates after recent-video scan`);
       return { videos: [], skippedAsDuplicate: 0, skippedAsNonInformational: 0 };
     }
 
@@ -116,6 +124,8 @@ export class VideoHarvestService {
     let skippedAsDuplicate = 0;
     let skippedAsNonInformational = 0;
     const accepted: RecentVideo[] = [];
+    let openAiClassifications = 0;
+    let heuristicKnown = 0;
 
     for (const video of candidates) {
       if (existingIds.has(video.youtubeVideoId)) {
@@ -124,12 +134,14 @@ export class VideoHarvestService {
       }
 
       const heuristic = this.heuristicDecision(video);
+      if (heuristic.known) heuristicKnown += 1;
       let isInformational = heuristic.isInformational;
       let confidence = heuristic.confidence;
       let reason = heuristic.reason;
       let source = "heuristic";
 
       if (!heuristic.known) {
+        openAiClassifications += 1;
         const aiDecision = await this.openai.classifyVideoInformational({
           title: video.videoTitle,
           description: video.description,
@@ -167,6 +179,9 @@ export class VideoHarvestService {
       });
 
       if (!isInformational) {
+        this.logger.log(
+          `Candidate filtered non-informational: video=${video.youtubeVideoId}, source=${source}, confidence=${confidence.toFixed(2)}, reason=${reason}`,
+        );
         skippedAsNonInformational += 1;
         continue;
       }
@@ -174,6 +189,10 @@ export class VideoHarvestService {
       accepted.push(video);
       if (accepted.length >= this.maxPerUser) break;
     }
+
+    this.logger.log(
+      `collectHarvestCandidates summary user=${userId}: totalRecent=${candidates.length}, accepted=${accepted.length}, skippedDuplicate=${skippedAsDuplicate}, skippedNonInformational=${skippedAsNonInformational}, heuristicKnown=${heuristicKnown}, openAiClassifications=${openAiClassifications}`,
+    );
 
     return {
       videos: accepted,

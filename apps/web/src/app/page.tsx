@@ -29,7 +29,7 @@ export default function HomePage() {
         </p>
         {user ? (
           <Button size="lg" asChild>
-            <Link href="/feed">Go to Feed</Link>
+            <Link href="/dashboard">Go to Dashboard</Link>
           </Button>
         ) : (
           <Button size="lg" onClick={() => showAuthDialog()}>
